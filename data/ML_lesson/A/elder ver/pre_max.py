@@ -121,7 +121,7 @@ class StockPredictor:
         self.close_idx = self.features.index("收盘")
         self.is_trained = False
         self.model_type = "LSTM+Attention"
-        self.data_cache_dir = "stock_data_cache"
+        self.data_cache_dir = "../stock_data_cache"
         # 用户选择的特征
         self.selected_features = self.base_features.copy()
         # 添加复权方式
@@ -1607,11 +1607,11 @@ with tab5:
         # 显示当前目录下的模型文件
         if st.button("查看可用模型"):
             model_files = []
-            if os.path.exists("saved_models"):
-                for item in os.listdir("saved_models"):
+            if os.path.exists("../saved_models"):
+                for item in os.listdir("../saved_models"):
                     if item.endswith('.h5'):
                         config_file = item.replace('.h5', '_config.pkl')
-                        if os.path.exists(os.path.join("saved_models", config_file)):
+                        if os.path.exists(os.path.join("../saved_models", config_file)):
                             model_files.append(item)
 
             if model_files:
@@ -1653,7 +1653,7 @@ with tab5:
     """)
 
     if st.button("清除数据缓存"):
-        cache_dir = "stock_data_cache"
+        cache_dir = "../stock_data_cache"
         if os.path.exists(cache_dir):
             file_count = 0
             for file in os.listdir(cache_dir):
