@@ -137,8 +137,8 @@ class RLTrainingPlatform:
             # 使用自定义回调记录评估奖励
             eval_callback = CustomEvalCallback(
                 eval_env,
-                best_model_save_path="./logs/",
-                log_path="./logs/",
+                best_model_save_path="logs/",
+                log_path="logs/",
                 eval_freq=1000,  # 每1000步评估一次
                 deterministic=True,
                 render=False,

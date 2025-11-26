@@ -50,8 +50,8 @@ class RLLearningPlatform:
         self.last_monitor_file = None
 
         # 创建必要的目录
-        os.makedirs("./models/", exist_ok=True)
-        os.makedirs("./logs/", exist_ok=True)
+        os.makedirs("models/", exist_ok=True)
+        os.makedirs("logs/", exist_ok=True)
 
         # 初始化界面
         self.setup_ui()
@@ -263,7 +263,7 @@ class RLLearningPlatform:
 
     def update_model_list(self):
         self.model_listbox.delete(0, tk.END)
-        for f in sorted(os.listdir("./models/")):
+        for f in sorted(os.listdir("models/")):
             if f.endswith(".zip"):
                 self.model_listbox.insert(tk.END, f)
 
