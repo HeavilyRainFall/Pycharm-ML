@@ -19,24 +19,7 @@ from datetime import datetime
 import csv
 import shutil
 import flappy_bird_gymnasium
-import gymnasium
 
-env = gymnasium.make("FlappyBird-v0", render_mode="human", use_lidar=True)
-
-obs, _ = env.reset()
-while True:
-    # Next action:
-    # (feed the observation to your agent here)
-    action = env.action_space.sample()
-
-    # Processing:
-    obs, reward, terminated, _, info = env.step(action)
-
-    # Checking if the player is still alive
-    if terminated:
-        break
-
-env.close()
 # %% 全局绘图设置
 plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
@@ -64,10 +47,11 @@ class RLLearningPlatform:
         # 训练记录
         self.train_rewards = []
         self.train_steps_recorded = []
+        self.last_monitor_file = None
 
         # 创建必要的目录
-        os.makedirs("./models/", exist_ok=True)
-        os.makedirs("./logs/", exist_ok=True)
+        os.makedirs("models/", exist_ok=True)
+        os.makedirs("logs/", exist_ok=True)
 
         # 初始化界面
         self.setup_ui()
@@ -279,7 +263,7 @@ class RLLearningPlatform:
 
     def update_model_list(self):
         self.model_listbox.delete(0, tk.END)
-        for f in sorted(os.listdir("./models/")):
+        for f in sorted(os.listdir("models/")):
             if f.endswith(".zip"):
                 self.model_listbox.insert(tk.END, f)
 
@@ -347,20 +331,37 @@ class RLLearningPlatform:
 
     def load_monitor_rewards(self):
         """从 Monitor 日志读取 episode rewards"""
-        log_dir = "./logs/"
+        log_dir = "../logs/"
         monitor_file = None
+
+        # 查找最新的monitor文件
         for f in os.listdir(log_dir):
             if f.startswith("openaigym.episode") and f.endswith(".csv"):
                 monitor_file = os.path.join(log_dir, f)
                 break
+
         if monitor_file and os.path.exists(monitor_file):
-            with open(monitor_file, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    step = int(float(row['t']))
-                    reward = float(row['r'])
-                    self.train_steps_recorded.append(step)
-                    self.train_rewards.append(reward)
+            # 如果文件发生变化，重新读取
+            if monitor_file != self.last_monitor_file:
+                self.train_rewards.clear()
+                self.train_steps_recorded.clear()
+                self.last_monitor_file = monitor_file
+
+            try:
+                with open(monitor_file, 'r') as f:
+                    reader = csv.DictReader(f)
+                    rows = list(reader)
+
+                    # 只读取新行
+                    start_idx = len(self.train_rewards)
+                    for i in range(start_idx, len(rows)):
+                        row = rows[i]
+                        step = int(float(row['t']))
+                        reward = float(row['r'])
+                        self.train_steps_recorded.append(step)
+                        self.train_rewards.append(reward)
+            except Exception as e:
+                print(f"读取monitor文件失败: {e}")
 
     def create_environment(self, render_mode=None):
         """创建环境，应用显示设置"""
@@ -370,29 +371,24 @@ class RLLearningPlatform:
             width, height = map(int, window_size.split('x'))
 
             # 创建环境
-            env = gym.make("FlappyBird-v0",
-                           render_mode=render_mode,
-                           use_lidar=self.show_lidar_var.get(),
-                           # 注意：原版flappy-bird-gymnasium可能不支持所有参数
-                           # 这里我们尝试传递自定义参数
-                           screen_size=(width, height))
+            # 注意：flappy-bird-gymnasium 可能不支持所有自定义参数
+            # 我们只传递支持的参数
+            env_params = {
+                "render_mode": render_mode,
+                "use_lidar": self.show_lidar_var.get()
+            }
 
-            # 如果环境支持，设置其他显示选项
-            # 注意：这些参数可能需要环境支持，如果环境不支持会忽略
-            if hasattr(env, 'set_display_options'):
-                env.set_display_options(
-                    show_hitbox=self.show_hitbox_var.get(),
-                    show_score=self.show_score_var.get()
-                )
+            # 尝试添加屏幕大小参数（如果环境支持）
+            try:
+                env = gym.make("FlappyBird-v0", **env_params, screen_size=(width, height))
+            except:
+                # 如果不支持屏幕大小参数，回退到基本参数
+                env = gym.make("FlappyBird-v0", **env_params)
 
             return env
         except Exception as e:
-            # 如果自定义参数失败，回退到基本创建方式
-            try:
-                return gym.make("FlappyBird-v0", render_mode=render_mode)
-            except Exception as e2:
-                messagebox.showerror("错误", f"创建环境失败: {e2}")
-                return None
+            messagebox.showerror("错误", f"创建环境失败: {e}")
+            return None
 
     def run_training_demo(self, model):
         """训练中运行一次可视化演示"""
@@ -458,12 +454,14 @@ class RLLearningPlatform:
     def train_model(self):
         try:
             # 清理旧日志
-            log_dir = "./logs/"
+            log_dir = "../logs/"
             for f in os.listdir(log_dir):
-                os.remove(os.path.join(log_dir, f))
+                if f.startswith("openaigym.episode"):
+                    os.remove(os.path.join(log_dir, f))
 
             self.train_rewards.clear()
             self.train_steps_recorded.clear()
+            self.last_monitor_file = None
 
             env = self.create_environment(render_mode=None)
             if env is None:
@@ -556,8 +554,21 @@ class RLLearningPlatform:
             self.ax1.set_xlabel('总步数')
             self.ax1.set_ylabel('Episode 奖励')
             self.ax1.grid(True)
+
+            # 添加一些模拟数据，确保图表有内容显示
+            if len(self.train_steps_recorded) < 5:
+                # 如果数据太少，添加一些模拟数据点
+                simulated_steps = np.linspace(0, max(self.train_steps_recorded), 10)
+                simulated_rewards = np.interp(simulated_steps,
+                                              self.train_steps_recorded,
+                                              self.train_rewards)
+                self.ax1.plot(simulated_steps, simulated_rewards, 'r--', alpha=0.5, label='模拟趋势')
+                self.ax1.legend()
         else:
-            self.ax1.text(0.5, 0.5, '暂无训练数据', ha='center', va='center')
+            # 如果没有数据，显示提示信息
+            self.ax1.text(0.5, 0.5, '暂无训练数据\n请等待训练开始...',
+                          ha='center', va='center', transform=self.ax1.transAxes, fontsize=14)
+
         self.canvas.draw()
 
     def evaluate_model(self):
@@ -594,6 +605,12 @@ class RLLearningPlatform:
         if self.model is None:
             messagebox.showwarning("警告", "请先训练或加载模型")
             return
+
+        # 确保演示环境已关闭
+        if self.demo_env is not None:
+            self.demo_env.close()
+            self.demo_env = None
+
         self.demo_thread = threading.Thread(target=self._run_demo)
         self.demo_thread.daemon = True
         self.demo_thread.start()
@@ -601,18 +618,11 @@ class RLLearningPlatform:
     def _run_demo(self):
         try:
             self.status_var.set("启动游戏演示...")
-            # 使用现有的演示环境或创建新的
-            if (self.demo_env is None or
-                    hasattr(self, 'last_display_settings') and
-                    self.last_display_settings != self.get_display_settings()):
 
-                if self.demo_env is not None:
-                    self.demo_env.close()
-
-                demo_env = self.create_environment(render_mode="human")
-                self.last_display_settings = self.get_display_settings()
-            else:
-                demo_env = self.demo_env
+            # 总是创建新的演示环境
+            demo_env = self.create_environment(render_mode="human")
+            if demo_env is None:
+                return
 
             episodes = 3
             for ep in range(episodes):
@@ -630,12 +640,12 @@ class RLLearningPlatform:
                     time.sleep(1)  # 在episode之间暂停
 
             # 不关闭环境，保持窗口打开
-            if demo_env != self.demo_env:
-                demo_env.close()
-
             self.status_var.set("演示完成")
+
         except Exception as e:
             self.status_var.set(f"演示出错: {e}")
+            if 'demo_env' in locals():
+                demo_env.close()
 
 
 def main():
