@@ -320,7 +320,7 @@ class RLLearningPlatform:
 
     def update_model_list(self):
         self.model_listbox.delete(0, tk.END)
-        for f in sorted(os.listdir("models/")):
+        for f in sorted(os.listdir("./models/")):
             if f.endswith(".zip"):
                 self.model_listbox.insert(tk.END, f)
 
