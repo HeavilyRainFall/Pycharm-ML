@@ -20,230 +20,13 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg  # 导入FigureC
 def load_csv_data(filepath):
     """
     加载CSV文件，自动检测是否有表头
-    改进的表头检测方法：
-    1. 读取前几行数据
-    2. 检查第一行是否包含非数字内容（如列名）
-    3. 根据内容类型判断是否有表头
     """
-    # 尝试读取前两行来判断是否有表头
-    try:
-        # 先尝试读取前两行，不指定列名
-        df_temp = pd.read_csv(filepath, header=None, nrows=2)
         
-        # 检查第一行是否可能是表头
-        first_row = df_temp.iloc[0]
-        
-        # 检查第一行的每个元素是否可以转换为数字
-        has_header = False
-        for item in first_row:
             try:
-                float(item)  # 如果可以转换为浮点数，则可能是数据而不是表头
-            except (ValueError, TypeError):
-                # 如果不能转换为数字，可能是表头
-                has_header = True
-                break
-        
-        # 根据判断结果读取数据
-        if has_header:
-            # 如果有表头，则使用第一行为列名
-            df = pd.read_csv(filepath)
-            # 确保列名是期望的格式，如果不是则使用默认列名
-            if 'wavelength' in df.columns.str.lower() and 'value' in df.columns.str.lower():
-                # 如果列名包含wavelength和value，使用现有列名
-                wavelength_col = df.columns[df.columns.str.lower().str.contains('wave|nm|length|lambda')][0]
-                value_col = df.columns[df.columns.str.lower().str.contains('value|data|signal|intensity|power')][0]
-                df = df.rename(columns={wavelength_col: 'wavelength', value_col: 'value'})
-            elif len(df.columns) >= 2:
-                # 否则使用前两列作为wavelength和value
-                df = df.iloc[:, :2]  # 只取前两列
                 df.columns = ['wavelength', 'value']
-            else:
-                raise ValueError(f"CSV文件 {filepath} 中没有足够的列")
-        else:
-            # 如果没有表头，则使用默认列名
-            df = pd.read_csv(filepath, header=None)
-            if len(df.columns) >= 2:
-                df.columns = ['wavelength', 'value']
-            else:
-                raise ValueError(f"CSV文件 {filepath} 中没有足够的列")
-        
-        # 转换列为数值类型
-        df['wavelength'] = pd.to_numeric(df['wavelength'], errors='coerce')
-        df['value'] = pd.to_numeric(df['value'], errors='coerce')
-        
-        # 删除包含NaN的行
-        df = df.dropna()
         
         return df
         
-    except Exception as e:
-        print(f"读取文件 {filepath} 时出错: {e}")
-        # 如果自动检测失败，尝试使用原始方法
-        df = pd.read_csv(filepath, header=None)
-        if len(df.columns) >= 2:
-            df.columns = ['wavelength', 'value']
-            df['wavelength'] = pd.to_numeric(df['wavelength'], errors='coerce')
-            df['value'] = pd.to_numeric(df['value'], errors='coerce')
-            df = df.dropna()
-            return df
-        else:
-            raise ValueError(f"CSV文件 {filepath} 中没有足够的列")
-
-
-def load_scattered_light_data(scattered_light_folder_path):
-    """
-    加载杂散光数据，读取S（白参考）、D（暗背景）、T（样品光）三个子文件夹中的数据
-    返回每个文件夹中所有文件的平均光谱数据
-    """
-    s_folder = os.path.join(scattered_light_folder_path, 'S')
-    d_folder = os.path.join(scattered_light_folder_path, 'D')
-    t_folder = os.path.join(scattered_light_folder_path, 'T')
-    
-    # 检查文件夹是否存在
-    if not os.path.exists(s_folder):
-        raise FileNotFoundError("S文件夹不存在")
-    if not os.path.exists(d_folder):
-        raise FileNotFoundError("D文件夹不存在")
-    if not os.path.exists(t_folder):
-        raise FileNotFoundError("T文件夹不存在")
-    
-    # 获取所有文件
-    s_files = sorted([f for f in os.listdir(s_folder) if f.endswith('.csv')])
-    d_files = sorted([f for f in os.listdir(d_folder) if f.endswith('.csv')])
-    t_files = sorted([f for f in os.listdir(t_folder) if f.endswith('.csv')])
-    
-    print(f"S文件夹中的文件数量: {len(s_files)}")
-    print(f"D文件夹中的文件数量: {len(d_files)}")
-    print(f"T文件夹中的文件数量: {len(t_files)}")
-    
-    # 检查文件数量是否一致
-    if len(s_files) != len(d_files) or len(d_files) != len(t_files):
-        raise ValueError("S、D和T文件夹中的文件数量不一致！")
-    
-    # 加载第一个文件以获取波长信息
-    if len(s_files) == 0:
-        raise ValueError("文件夹中没有CSV文件")
-        
-    sample_df_s = load_csv_data(os.path.join(s_folder, s_files[0]))
-    wavelengths = sample_df_s['wavelength'].values
-    
-    # 验证所有文件的波长是否一致
-    all_folders = [(s_folder, s_files), (d_folder, d_files), (t_folder, t_files)]
-    folder_names = ['S', 'D', 'T']
-    
-    for i, (folder, files) in enumerate(all_folders):
-        for file in files:
-            df = load_csv_data(os.path.join(folder, file))
-            if not np.allclose(wavelengths, df['wavelength'].values, rtol=1e-5):
-                raise ValueError(f"文件 {file} 的波长与参考波长不匹配！")
-    
-    # 准备存储数据的数组
-    s_data = np.zeros((len(s_files), len(wavelengths)))
-    d_data = np.zeros((len(d_files), len(wavelengths)))
-    t_data = np.zeros((len(t_files), len(wavelengths)))
-    
-    # 加载S数据
-    for i, file in enumerate(s_files):
-        df = load_csv_data(os.path.join(s_folder, file))
-        s_data[i, :] = df['value'].values
-    
-    # 加载D数据
-    for i, file in enumerate(d_files):
-        df = load_csv_data(os.path.join(d_folder, file))
-        d_data[i, :] = df['value'].values
-    
-    # 加载T数据
-    for i, file in enumerate(t_files):
-        df = load_csv_data(os.path.join(t_folder, file))
-        t_data[i, :] = df['value'].values
-    
-    # 计算各波长的平均值
-    s_mean = np.mean(s_data, axis=0)
-    d_mean = np.mean(d_data, axis=0)
-    t_mean = np.mean(t_data, axis=0)
-    
-    return wavelengths, s_mean, d_mean, t_mean
-
-
-def calculate_scattered_light(scattered_light_folder_path):
-    """
-    计算杂散光，计算公式为：(T-D)/(S-D)*100%
-    并计算670nm至740nm范围内的透过率平均值
-    """
-    # 加载数据
-    wavelengths, s_mean, d_mean, t_mean = load_scattered_light_data(scattered_light_folder_path)
-    
-    # 计算透过率：(T-D)/(S-D)*100%
-    # 避免除零错误
-    denominator = s_mean - d_mean
-    transmittance = np.divide(t_mean - d_mean, denominator, out=np.zeros_like(t_mean), where=denominator!=0) * 100.0
-    
-    # 找到670nm至740nm范围内的数据点
-    range_mask = (wavelengths >= 670) & (wavelengths <= 740)
-    transmittance_in_range = transmittance[range_mask]
-    
-    # 计算670nm至740nm范围内的透过率平均值
-    if len(transmittance_in_range) > 0:
-        avg_transmittance_in_range = np.mean(transmittance_in_range)
-    else:
-        avg_transmittance_in_range = 0.0  # 如果范围内没有数据点
-    
-    # 计算统计信息
-    transmittance_stats = {
-        'max': np.max(transmittance),
-        'min': np.min(transmittance),
-        'mean': np.mean(transmittance),
-        'median': np.median(transmittance),
-        'avg_670_740nm': avg_transmittance_in_range  # 670-740nm范围内的平均值
-    }
-    
-    return wavelengths, transmittance, transmittance_stats
-
-
-def plot_scattered_light_to_html(wavelengths, transmittance):
-    """
-    将杂散光分析结果绘制成图片并返回base64编码
-    """
-    # 创建图形，包含主图和放大部分
-    fig, ((ax1, ax2)) = plt.subplots(2, 1, figsize=(12, 10))
-    
-    # 主图：绘制全部波长范围的透过率
-    ax1.plot(wavelengths, transmittance, label='Transmittance (%)', color='green', linewidth=1)
-    ax1.set_xlabel('Wavelength (nm)')
-    ax1.set_ylabel('Transmittance (%)')
-    ax1.set_title('Scattered Light Analysis - Transmittance vs Wavelength (Full Range)')
-    ax1.grid(True)
-    ax1.legend()
-    
-    # 放大部分：670-740nm范围
-    range_mask = (wavelengths >= 670) & (wavelengths <= 740)
-    if np.any(range_mask):
-        ax2.plot(wavelengths[range_mask], transmittance[range_mask], 
-                label='Transmittance in 670-740nm', color='red', linewidth=1)
-        ax2.set_xlabel('Wavelength (nm)')
-        ax2.set_ylabel('Transmittance (%)')
-        ax2.set_title('Scattered Light Analysis - Transmittance vs Wavelength (670-740nm Range)')
-        ax2.grid(True)
-        ax2.legend()
-    else:
-        ax2.text(0.5, 0.5, 'No data in 670-740nm range', 
-                horizontalalignment='center', verticalalignment='center',
-                transform=ax2.transAxes, fontsize=14)
-        ax2.set_xlabel('Wavelength (nm)')
-        ax2.set_ylabel('Transmittance (%)')
-        ax2.set_title('Scattered Light Analysis - 670-740nm Range')
-    
-    plt.tight_layout()
-    
-    # 保存图像到内存
-    img_buffer = BytesIO()
-    plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
-    img_buffer.seek(0)
-    img_base64 = base64.b64encode(img_buffer.read()).decode('utf-8')
-    plt.close(fig)  # 关闭图形以释放内存
-    
-    return img_base64
-
 
 def calculate_snr_and_dynamic_range(snr_folder_path):
     """
@@ -539,7 +322,6 @@ def plot_resolution_analysis_to_html(results):
     return html_parts
 
 
-def generate_html_report(snr_stats, dr_stats, resolution_results, snr_plot_img, resolution_plots_imgs, transmittance_stats, scattered_light_plot_img, filepath):
     """
     生成HTML报告
     """
@@ -618,7 +400,6 @@ def generate_html_report(snr_stats, dr_stats, resolution_results, snr_plot_img, 
         <h1>光谱数据分析报告</h1>
         <p><strong>生成时间:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         
-        {f'''
         <div class="section">
             <h2>信噪比 (SNR) 统计信息</h2>
             <table class="stats-table">
@@ -661,11 +442,9 @@ def generate_html_report(snr_stats, dr_stats, resolution_results, snr_plot_img, 
                 <img src="data:image/png;base64,{snr_plot_img}" alt="SNR和动态范围图表">
             </div>
         </div>
-        ''' if snr_stats else ''}
         
         <div class="section">
             <h2>分辨率分析</h2>
-            <p><strong>总文件数:</strong> {len(resolution_results) if resolution_results else 0}</p>
             
             {"".join([
                 f'''
@@ -688,10 +467,8 @@ def generate_html_report(snr_stats, dr_stats, resolution_results, snr_plot_img, 
                     </table>
                 </div>
                 ''' for result in resolution_results
-            ]) if resolution_results else '<p>未进行分辨率分析</p>'}
         </div>
         
-        {f'''
         <div class="section">
             <h2>分辨率分析 图表</h2>
             {"".join([
@@ -705,36 +482,6 @@ def generate_html_report(snr_stats, dr_stats, resolution_results, snr_plot_img, 
                 ''' for i, result in enumerate(resolution_results)
             ])}
         </div>
-        ''' if resolution_plots_imgs and resolution_results else ''}
-        
-        {f'''
-        <div class="section">
-            <h2>杂散光分析</h2>
-            <table class="stats-table">
-                <tr>
-                    <th>最大值</th>
-                    <th>最小值</th>
-                    <th>平均值</th>
-                    <th>中位数</th>
-                    <th>670-740nm平均值</th>
-                </tr>
-                <tr>
-                    <td>{transmittance_stats['max']:.4f}%</td>
-                    <td>{transmittance_stats['min']:.4f}%</td>
-                    <td>{transmittance_stats['mean']:.4f}%</td>
-                    <td>{transmittance_stats['median']:.4f}%</td>
-                    <td>{transmittance_stats['avg_670_740nm']:.4f}%</td>
-                </tr>
-            </table>
-        </div>
-        
-        <div class="section">
-            <h2>杂散光分析 图表</h2>
-            <div class="image-container">
-                <img src="data:image/png;base64,{scattered_light_plot_img}" alt="杂散光分析图表">
-            </div>
-        </div>
-        ''' if transmittance_stats else ''}
     </div>
 </body>
 </html>'''
@@ -760,13 +507,10 @@ class SpectraAnalysisApp:
         self.snr_stats = None
         self.dr_stats = None
         self.resolution_results = None
-        self.transmittance_data = None
-        self.transmittance_stats = None
         
         # 默认路径
         self.default_snr_path = os.path.join(os.path.dirname(__file__), "SNR")
         self.default_res_path = os.path.join(os.path.dirname(__file__), "分辨率")
-        self.default_scattered_path = os.path.join(os.path.dirname(__file__), "杂散光")
         
         # 创建GUI组件
         self.create_widgets()
@@ -787,10 +531,6 @@ class SpectraAnalysisApp:
         # 分辨率分析按钮
         res_btn = ttk.Button(control_frame, text="分析分辨率", command=self.analyze_resolution)
         res_btn.pack(side=tk.LEFT, padx=5)
-        
-        # 杂散光分析按钮
-        scattered_btn = ttk.Button(control_frame, text="分析杂散光", command=self.analyze_scattered_light)
-        scattered_btn.pack(side=tk.LEFT, padx=5)
         
         # 生成报告按钮
         report_btn = ttk.Button(control_frame, text="生成报告", command=self.generate_and_save_report)
@@ -837,15 +577,6 @@ class SpectraAnalysisApp:
         self.prev_btn = ttk.Button(res_control_frame, text="上一页", command=self.prev_resolution_file)
         self.prev_btn.pack(side=tk.RIGHT, padx=5, pady=5)
         
-        # 杂散光分析页面
-        scattered_frame = ttk.Frame(notebook)
-        notebook.add(scattered_frame, text="杂散光分析")
-        
-        # 杂散光分析图形
-        self.scattered_fig, (self.scattered_ax1, self.scattered_ax2) = plt.subplots(2, 1, figsize=(10, 6))
-        self.scattered_canvas = FigureCanvasTkAgg(self.scattered_fig, scattered_frame)
-        self.scattered_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-    
     def analyze_snr_dr(self):
         # 首先尝试默认路径
         snr_folder_path = self.default_snr_path
@@ -907,65 +638,6 @@ class SpectraAnalysisApp:
                 self.display_current_resolution_file()
             
             messagebox.showinfo("完成", "分辨率分析完成！")
-        except Exception as e:
-            messagebox.showerror("错误", f"分析过程中出现错误: {str(e)}")
-    
-    def analyze_scattered_light(self):
-        # 首先尝试默认路径
-        scattered_light_folder_path = self.default_scattered_path
-        if not os.path.exists(scattered_light_folder_path):
-            # 如果默认路径不存在，让用户选择
-            scattered_light_folder_path = filedialog.askdirectory(title="选择杂散光数据文件夹（包含S、D、T子文件夹）")
-            if not scattered_light_folder_path:
-                return
-        
-        try:
-            self.wavelengths, self.transmittance_data, self.transmittance_stats = calculate_scattered_light(scattered_light_folder_path)
-            
-            # 清除之前的图形内容
-            self.scattered_ax1.clear()
-            self.scattered_ax2.clear()
-            
-            # 主图：绘制全部波长范围的透过率
-            self.scattered_ax1.plot(self.wavelengths, self.transmittance_data, label='Transmittance (%)', color='green', linewidth=1)
-            self.scattered_ax1.set_xlabel('Wavelength (nm)')
-            self.scattered_ax1.set_ylabel('Transmittance (%)')
-            self.scattered_ax1.set_title('Scattered Light Analysis - Transmittance vs Wavelength (Full Range)')
-            self.scattered_ax1.grid(True)
-            self.scattered_ax1.legend()
-            
-            # 放大部分：670-740nm范围
-            range_mask = (self.wavelengths >= 670) & (self.wavelengths <= 740)
-            if np.any(range_mask):
-                self.scattered_ax2.plot(self.wavelengths[range_mask], self.transmittance_data[range_mask], 
-                        label='Transmittance in 670-740nm', color='red', linewidth=1)
-                self.scattered_ax2.set_xlabel('Wavelength (nm)')
-                self.scattered_ax2.set_ylabel('Transmittance (%)')
-                self.scattered_ax2.set_title('Scattered Light Analysis - Transmittance vs Wavelength (670-740nm Range)')
-                self.scattered_ax2.grid(True)
-                self.scattered_ax2.legend()
-            else:
-                # 如果没有在范围内找到数据，仍然显示轴标签和标题
-                self.scattered_ax2.set_xlabel('Wavelength (nm)')
-                self.scattered_ax2.set_ylabel('Transmittance (%)')
-                self.scattered_ax2.set_title('Scattered Light Analysis - 670-740nm Range')
-                self.scattered_ax2.text(0.5, 0.5, 'No data in 670-740nm range', 
-                        horizontalalignment='center', verticalalignment='center',
-                        transform=self.scattered_ax2.transAxes, fontsize=14)
-                self.scattered_ax2.grid(True)
-            
-            # 确保布局正确
-            self.scattered_fig.tight_layout()
-            # 强制更新画布
-            self.scattered_canvas.draw()
-            self.scattered_canvas.flush_events()
-            
-            # 更新统计信息标签
-            stats_text = f"Transmittance - Max: {self.transmittance_stats['max']:.2f}%, Min: {self.transmittance_stats['min']:.2f}%, Mean: {self.transmittance_stats['mean']:.2f}% | "
-            stats_text += f"670-740nm Avg: {self.transmittance_stats['avg_670_740nm']:.2f}%"
-            self.stats_label.config(text=stats_text)
-            
-            messagebox.showinfo("完成", "杂散光分析完成！")
         except Exception as e:
             messagebox.showerror("错误", f"分析过程中出现错误: {str(e)}")
     
@@ -1032,27 +704,15 @@ class SpectraAnalysisApp:
             self.display_current_resolution_file()
     
     def generate_and_save_report(self):
-        if not self.snr_stats and not self.transmittance_stats and not self.resolution_results:
-            messagebox.showwarning("警告", "请先完成SNR/DR、杂散光或分辨率分析！")
             return
             
         # 生成图表的base64编码
-        snr_plot_img = None
-        if self.snr_data is not None:
             snr_plot_img = plot_snr_and_dynamic_range_to_html(
                 self.wavelengths, self.snr_data, self.dr_data
             )
         
-        resolution_plots_imgs = None
-        if self.resolution_results:
             resolution_plots_imgs = plot_resolution_analysis_to_html(
                 self.resolution_results
-            )
-        
-        scattered_light_plot_img = None
-        if self.transmittance_data is not None:
-            scattered_light_plot_img = plot_scattered_light_to_html(
-                self.wavelengths, self.transmittance_data
             )
         
         # 保存HTML报告
@@ -1070,8 +730,6 @@ class SpectraAnalysisApp:
                     self.resolution_results, 
                     snr_plot_img, 
                     resolution_plots_imgs,
-                    self.transmittance_stats,
-                    scattered_light_plot_img,
                     save_path
                 )
                 messagebox.showinfo("完成", f"报告已保存到: {save_path}")
